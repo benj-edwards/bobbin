@@ -35,6 +35,18 @@ save-hgr2-ppm FILE (shp2 FILE)\n\
     Save HGR page 2 as PPM image (mono).\n\
 save-hgr2-ppm-color FILE\n\
     Save HGR page 2 as PPM image (color artifacts).\n\
+save-gr-ascii FILE (sga FILE)\n\
+    Save GR (lo-res) page 1 as ASCII art.\n\
+save-gr-ppm FILE (sgp FILE)\n\
+    Save GR page 1 as PPM image (scaled 280x192).\n\
+save-gr-ppm-native FILE\n\
+    Save GR page 1 as PPM image (native 40x48).\n\
+save-gr2-ascii FILE (sga2 FILE)\n\
+    Save GR page 2 as ASCII art.\n\
+save-gr2-ppm FILE (sgp2 FILE)\n\
+    Save GR page 2 as PPM image (scaled 280x192).\n\
+save-gr2-ppm-native FILE\n\
+    Save GR page 2 as PPM image (native 40x48).\n\
 ";
 
 static const char SAVE_RAM_STR[] = "save-ram ";

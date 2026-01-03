@@ -578,13 +578,20 @@ extern void trace_write(word loc, byte val);
 typedef int (*printer)(const char * fmt, ...);
 bool command_do(const char *line, printer pr);
 
-/********** HGR EXPORT **********/
+/********** GRAPHICS EXPORT **********/
 
+// HGR (Hi-Res) - 280x192
 extern int hgr_export_ascii(word base, const char *filename, int scale);
 extern int hgr_export_ppm(word base, const char *filename, bool color_mode);
 extern int hgr_export_png(word base, const char *filename, bool color_mode);
 extern bool hgr_command_do(const char *line, printer pr);
 extern bool hgr_command_do_color(const char *line, printer pr);
+
+// GR (Lo-Res) - 40x48, 16 colors
+extern int gr_export_ascii(word base, const char *filename);
+extern int gr_export_ppm(word base, const char *filename);
+extern int gr_export_ppm_native(word base, const char *filename);
+extern bool gr_command_do(const char *line, printer pr);
 
 extern void dbg_on(void);
 extern void debugger(void);
