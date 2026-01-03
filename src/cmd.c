@@ -23,6 +23,18 @@ m\n\
     invoke the Apple ][ monitor.\n\
 disk NUM { eject | load PATH }.\n\
     Eject or load a disk image.\n\
+save-hgr-ascii FILE (sha FILE)\n\
+    Save HGR page 1 as ASCII art.\n\
+save-hgr-ppm FILE (shp FILE)\n\
+    Save HGR page 1 as PPM image (mono).\n\
+save-hgr-ppm-color FILE\n\
+    Save HGR page 1 as PPM image (color artifacts).\n\
+save-hgr2-ascii FILE (sha2 FILE)\n\
+    Save HGR page 2 as ASCII art.\n\
+save-hgr2-ppm FILE (shp2 FILE)\n\
+    Save HGR page 2 as PPM image (mono).\n\
+save-hgr2-ppm-color FILE\n\
+    Save HGR page 2 as PPM image (color artifacts).\n\
 ";
 
 static const char SAVE_RAM_STR[] = "save-ram ";

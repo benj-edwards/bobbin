@@ -387,6 +387,10 @@ void debugger(void)
             printf("Trace log \"%s\" closed.\n", cfg.trace_file);
         } else if (handle_monitor_like_cmd(&loop)) {
             // Handled.
+        } else if (hgr_command_do(linebuf, printf)) {
+            // HGR export - stay in debugger
+        } else if (hgr_command_do_color(linebuf, printf)) {
+            // HGR color export - stay in debugger
         } else {
             fputs("Unrecognized command!\n", stdout);
         }
