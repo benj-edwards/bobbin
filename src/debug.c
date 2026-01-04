@@ -393,6 +393,10 @@ void debugger(void)
             // HGR color export - stay in debugger
         } else if (gr_command_do(linebuf, printf)) {
             // GR export - stay in debugger
+        } else if (dhgr_command_do(linebuf, printf)) {
+            // DHGR export - stay in debugger
+        } else if (dgr_command_do(linebuf, printf)) {
+            // DGR export - stay in debugger
         } else {
             fputs("Unrecognized command!\n", stdout);
         }

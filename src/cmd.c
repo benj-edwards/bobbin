@@ -47,6 +47,26 @@ save-gr2-ppm FILE (sgp2 FILE)\n\
     Save GR page 2 as PPM image (scaled 280x192).\n\
 save-gr2-ppm-native FILE\n\
     Save GR page 2 as PPM image (native 40x48).\n\
+save-dhgr-ascii FILE (sdha FILE)\n\
+    Save DHGR (double hi-res) page 1 as ASCII art (//e only).\n\
+save-dhgr-ppm FILE (sdhp FILE)\n\
+    Save DHGR page 1 as PPM image (560x192, //e only).\n\
+save-dhgr2-ascii FILE (sdha2 FILE)\n\
+    Save DHGR page 2 as ASCII art.\n\
+save-dhgr2-ppm FILE (sdhp2 FILE)\n\
+    Save DHGR page 2 as PPM image (560x192).\n\
+save-dgr-ascii FILE (sdga FILE)\n\
+    Save DGR (double lo-res) page 1 as ASCII art (//e only).\n\
+save-dgr-ppm FILE (sdgp FILE)\n\
+    Save DGR page 1 as PPM image (scaled 560x192, //e only).\n\
+save-dgr-ppm-native FILE\n\
+    Save DGR page 1 as PPM image (native 80x48).\n\
+save-dgr2-ascii FILE (sdga2 FILE)\n\
+    Save DGR page 2 as ASCII art.\n\
+save-dgr2-ppm FILE (sdgp2 FILE)\n\
+    Save DGR page 2 as PPM image (scaled 560x192).\n\
+save-dgr2-ppm-native FILE\n\
+    Save DGR page 2 as PPM image (native 80x48).\n\
 ";
 
 static const char SAVE_RAM_STR[] = "save-ram ";

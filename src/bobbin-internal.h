@@ -593,6 +593,17 @@ extern int gr_export_ppm(word base, const char *filename);
 extern int gr_export_ppm_native(word base, const char *filename);
 extern bool gr_command_do(const char *line, printer pr);
 
+// DHGR (Double Hi-Res) - 560x192, //e only
+extern int dhgr_export_ascii(word base, const char *filename, int scale);
+extern int dhgr_export_ppm(word base, const char *filename);
+extern bool dhgr_command_do(const char *line, printer pr);
+
+// DGR (Double Lo-Res) - 80x48, //e only
+extern int dgr_export_ascii(word base, const char *filename);
+extern int dgr_export_ppm(word base, const char *filename);
+extern int dgr_export_ppm_native(word base, const char *filename);
+extern bool dgr_command_do(const char *line, printer pr);
+
 extern void dbg_on(void);
 extern void debugger(void);
 extern bool debugging(void);
