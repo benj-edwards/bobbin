@@ -12,6 +12,8 @@ static PeriphDesc *slot[8];
 
 extern PeriphDesc disk2card;
 extern PeriphDesc smartport;
+extern PeriphDesc uthernet2;
+extern PeriphDesc mousecard;
 
 PeriphDesc *get_sw_slot(word loc)
 {
@@ -78,7 +80,15 @@ void periph_init(void)
     if (cfg.hdd_set) {
         slot[5] = &smartport;
     }
-    
+
+    if (cfg.uthernet2_set) {
+        slot[3] = &uthernet2;
+    }
+
+    if (cfg.mouse_set) {
+        slot[4] = &mousecard;  // Default to slot 4
+    }
+
     const int slots_end = (sizeof slot)/(sizeof slot[0]);
     for (int i=0; i != slots_end; ++i) {
         if (slot[i] != NULL && slot[i]->init != NULL) {

@@ -61,6 +61,7 @@ typedef const char * const AryOfStr;
 */
 static AryOfStr VV_OPT_NAMES[]  = {"vv",NULL};
 static AryOfStr VVV_OPT_NAMES[] = {"vvv",NULL};
+static AryOfStr MOUSE_OPT_NAMES[] = {"mouse", NULL};
 // ^ not a documented option, so we rolled this by hand. But
 
 typedef char Alias[];
@@ -111,6 +112,8 @@ const OptInfo options[] = {
     { DISK_OPT_NAMES, T_STRING_ARG, &cfg.disk },
     { DISK2_OPT_NAMES, T_STRING_ARG, &cfg.disk2 },
     { HDD_OPT_NAMES, T_FN_ARG, &hdd, &cfg.hdd_set },
+    { UTHERNET2_OPT_NAMES, T_BOOL, &cfg.uthernet2_set },
+    { MOUSE_OPT_NAMES, T_BOOL, &cfg.mouse_set },
     { LANG_CARD_OPT_NAMES, T_BOOL, &cfg.lang_card, &cfg.lang_card_set },
     { BELL_OPT_NAMES, T_BOOL, &cfg.bell },
     { TURBO_OPT_NAMES, T_BOOL, &cfg.turbo, &cfg.turbo_was_set },

@@ -1,6 +1,28 @@
-# BOBBIN (for Apples!)
+# BOBBIN AI (for Apples!)
 
-[Follow me at mastodon.social](https://mastodon.social/@micahcowan) for new feature announcements. Posts related to **bobbin** will begin with the tag "`BOBBIN: `".
+> **This is Bobbin AI** - a fork of [Bobbin](https://github.com/micahcowan/bobbin) enhanced for AI agent control. It enables AI systems like Claude to autonomously write, test, and debug Apple II software.
+
+<hr/>
+
+## What's Different in Bobbin AI?
+
+This fork adds features specifically for AI agent integration via MCP (Model Context Protocol):
+
+- **Unambiguous debugger prompt** (`BOBBIN> `) for reliable parsing
+- **AppleMouse card emulation** in slot 4
+- **Uthernet II card emulation** in slot 3
+- **Keyboard injection** (`keys` command) for reliable input
+- **Graphics capture** (HGR, DHGR, GR, DGR) for AI to "see" the screen
+
+See [AI_AGENT_SUPPORT.md](AI_AGENT_SUPPORT.md) for details.
+
+<hr/>
+
+## Original Bobbin
+
+*The following is from the original Bobbin by [Micah Cowan](https://github.com/micahcowan):*
+
+[Follow Micah at mastodon.social](https://mastodon.social/@micahcowan) for new feature announcements. Posts related to **bobbin** will begin with the tag "`BOBBIN: `".
 <hr/>
 
 **Bobbin** is a "highly hackable" Apple \]\[ emulator, aimed especially at improving productivity for devs of Apple \]\[ software by offering convenient terminal-based interface options, redirectable "standard input and output"-oriented options, and custom-scripted, on-the-fly adjustments to the emulated machine.
@@ -330,6 +352,14 @@ May be specified up to four times.
 
 The image must be a multiple of 512 bytes in size. The `--watch` option is not
 honored for hard disk images.
+
+##### --uthernet2
+
+Enable Uthernet II (W5100) network card emulation in slot 3.
+
+This allows Apple II software using IP65 or other TCP/IP stacks to access
+the network through the host system's networking. The emulated W5100 chip
+supports TCP and UDP sockets.
 
 #### Special options
 

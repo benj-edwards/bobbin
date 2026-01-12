@@ -107,6 +107,8 @@ struct Config {
     const char *    disk;
     const char *    disk2;
     bool            hdd_set;
+    bool            uthernet2_set;
+    bool            mouse_set;
     bool            machine_set;
     size_t          amt_ram;
     bool            load_rom;
@@ -541,6 +543,13 @@ extern int insert_disk(int drive, const char *path);
 // Smartport controller
 extern void smartport_add_image(const char *fname);
 
+// Mouse card
+extern void mouse_set_slot(unsigned int slot);
+extern unsigned int mouse_get_slot(void);
+extern void mouse_set_position(word x, word y);
+extern void mouse_set_button(bool pressed);
+extern void mouse_get_state(word *x, word *y, bool *button);
+
 /********** FORMATS  **********/
 
 #define NUM_TRACKS      35
@@ -603,6 +612,9 @@ extern int dgr_export_ascii(word base, const char *filename);
 extern int dgr_export_ppm(word base, const char *filename);
 extern int dgr_export_ppm_native(word base, const char *filename);
 extern bool dgr_command_do(const char *line, printer pr);
+
+// AI Agent keyboard injection (simple interface only)
+extern void simple_inject_keys(const char *keys, size_t len);
 
 extern void dbg_on(void);
 extern void debugger(void);

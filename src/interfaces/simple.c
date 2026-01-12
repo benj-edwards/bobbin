@@ -56,6 +56,51 @@ static unsigned char linebuf[256];
 static unsigned char *lbuf_start = linebuf;
 static unsigned char *lbuf_end = linebuf;
 
+// AI Agent keyboard injection queue
+// This queue takes priority over stdin and is not affected by timing issues
+static unsigned char inject_queue[1024];
+static size_t inject_head = 0;  // Read position
+static size_t inject_tail = 0;  // Write position
+static bool last_read_from_inject = false;  // Track if last read was from inject queue
+
+// Inject keystrokes into the queue for AI agents
+void simple_inject_keys(const char *keys, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        size_t next_tail = (inject_tail + 1) % sizeof(inject_queue);
+        if (next_tail == inject_head) {
+            // Queue full, drop character
+            WARN("Inject queue full, dropping character\n");
+            continue;
+        }
+        inject_queue[inject_tail] = (unsigned char)keys[i];
+        inject_tail = next_tail;
+    }
+}
+
+// Check if injection queue has characters
+static inline bool inject_queue_has_chars(void)
+{
+    return inject_head != inject_tail;
+}
+
+// Peek at next character from injection queue (don't consume)
+static int inject_queue_peek(void)
+{
+    if (inject_head == inject_tail) {
+        return -1;  // Queue empty
+    }
+    return inject_queue[inject_head];
+}
+
+// Consume character from injection queue
+static void inject_queue_consume(void)
+{
+    if (inject_head != inject_tail) {
+        inject_head = (inject_head + 1) % sizeof(inject_queue);
+    }
+}
+
 #define SUPPRESS_NONE    0
 #define SUPPRESS_CR      1
 #define SUPPRESS_LINE    2
@@ -222,6 +267,21 @@ int read_char(void)
 
 recheck:
     c = 0;
+
+    // AI Agent injection queue takes top priority
+    // This bypasses all timing issues with stdin
+    if (inject_queue_has_chars()) {
+        int raw = inject_queue_peek();
+        if (raw >= 0) {
+            c = util_fromascii(raw);
+            if (c == 0x8D) // CR
+                set_noncanon();
+            last_read_from_inject = true;
+            goto done_reading;
+        }
+    }
+    last_read_from_inject = false;
+
     if (exit_on_spindown) {
         // no input
     } else if (sigint_received) {
@@ -359,6 +419,8 @@ next_comment:
             c = util_fromascii(*lbuf_start);
         }
     }
+
+done_reading:
     if (c >= 0) last_char_read = c & 0x7f;
 
     return c;
@@ -366,6 +428,17 @@ next_comment:
 
 void consume_char(void)
 {
+    // Handle injected characters first
+    if (last_read_from_inject) {
+        inject_queue_consume();
+        last_read_from_inject = false;
+        last_char_consumed = last_char_read;
+        if ((last_char_read & 0x7F) == '\r') {
+            ++line_number;
+        }
+        return;
+    }
+
     if (!eof_found) {
         // skip
     } else if (cfg.bot_mode && !output_seen) {
@@ -468,6 +541,13 @@ static void iface_simple_start(void)
     curlnsz = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
+
+    // Always set stdin non-blocking so we don't hang waiting for input
+    // This allows the emulator to keep running even when no input is available
+    {
+        int flags = fcntl(0, F_GETFL);
+        (void) fcntl(0, F_SETFL, flags | O_NONBLOCK);
+    }
 
     if (cfg.tokenize) {
         // Move stdout (tokenization dest) out of the way,

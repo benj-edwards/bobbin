@@ -275,7 +275,7 @@ void debugger(void)
     bool loop = true;
     while(loop) {
         util_print_state(stdout, current_pc(), &theCpu.regs);
-        fputc('>', stdout);
+        fputs("\nBOBBIN> ", stdout);
         fflush(stdout);
         errno = 0;
         char *s = fgets(linebuf, sizeof linebuf, stdin);

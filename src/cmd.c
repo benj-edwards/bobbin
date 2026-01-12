@@ -67,11 +67,15 @@ save-dgr2-ppm FILE (sdgp2 FILE)\n\
     Save DGR page 2 as PPM image (scaled 560x192).\n\
 save-dgr2-ppm-native FILE\n\
     Save DGR page 2 as PPM image (native 80x48).\n\
+keys TEXT\n\
+    Inject TEXT as keyboard input (for AI agents).\n\
+    Escape sequences: \\r=RETURN, \\n=RETURN, \\e=ESC.\n\
 ";
 
 static const char SAVE_RAM_STR[] = "save-ram ";
 static const char DISK_STR[] = "disk ";
 static const char LOAD_STR[] = "load ";
+static const char KEYS_STR[] = "keys ";
 
 bool command_do(const char *line, printer pr)
 {
@@ -191,6 +195,41 @@ ramsave_bail:
         }
 disk_bail:
         ;
+    } else if (!memcmp(line, KEYS_STR, sizeof(KEYS_STR)-1)) {
+        // AI Agent keyboard injection
+        pr("DEBUG: keys command received\n");
+        line += sizeof(KEYS_STR)-1; // skip to the argument
+        pr("DEBUG: argument is: '%s'\n", line);
+        // Process escape sequences and inject keys
+        char buf[1024];
+        size_t buflen = 0;
+        while (*line && buflen < sizeof(buf) - 1) {
+            if (*line == '\\' && *(line+1)) {
+                line++;
+                switch (*line) {
+                    case 'r':
+                    case 'n':
+                        buf[buflen++] = '\r';  // Apple II CR
+                        break;
+                    case 'e':
+                        buf[buflen++] = '\x1b';  // ESC
+                        break;
+                    case '\\':
+                        buf[buflen++] = '\\';
+                        break;
+                    default:
+                        buf[buflen++] = *line;
+                        break;
+                }
+                line++;
+            } else {
+                buf[buflen++] = *line++;
+            }
+        }
+        if (buflen > 0) {
+            simple_inject_keys(buf, buflen);
+            pr("Injected %zu characters.\n", buflen);
+        }
     } else {
         handled = false;
     }
