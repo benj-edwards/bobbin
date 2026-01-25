@@ -482,12 +482,16 @@ static void inject_dhcp_response(int socknum, bool is_ack)
     pkt[0] = (pos >> 8) & 0xFF;
     pkt[1] = pos & 0xFF;
 
-    // Update RX buffer state
-    ss->rx_head = 0;
-    ss->rx_tail = pos;
+    // For DHCP (startup only), write at current tail position
+    // Copy to circular buffer
+    for (int i = 0; i < pos; i++) {
+        int dst = (ss->rx_tail + i) & (SOCK_BUF_SIZE - 1);
+        ss->rx_buf[dst] = pkt[i];
+    }
+    ss->rx_tail += pos;
 
-    DEBUG("Uthernet II: Injected DHCP %s (%d bytes)\n",
-          is_ack ? "ACK" : "OFFER", pos);
+    DEBUG("Uthernet II: Injected DHCP %s (%d bytes) head=%d tail=%d\n",
+          is_ack ? "ACK" : "OFFER", pos, ss->rx_head, ss->rx_tail);
 }
 
 //=============================================================================
@@ -563,11 +567,14 @@ static void inject_arp_reply(int socknum, byte *request_frame)
     pkt[0] = (pos >> 8) & 0xFF;
     pkt[1] = pos & 0xFF;
 
-    // Update RX buffer state
-    ss->rx_head = 0;
-    ss->rx_tail = pos;
+    // Copy to circular buffer position
+    for (int i = 0; i < pos; i++) {
+        int dst = (ss->rx_tail + i) & (SOCK_BUF_SIZE - 1);
+        ss->rx_buf[dst] = pkt[i];
+    }
+    ss->rx_tail += pos;
 
-    DEBUG("Uthernet II: Injected ARP reply (%d bytes)\n", pos);
+    DEBUG("Uthernet II: Injected ARP reply (%d bytes) head=%d tail=%d\n", pos, ss->rx_head, ss->rx_tail);
 }
 
 //=============================================================================
@@ -698,8 +705,9 @@ static void handle_tcp_packet(int socknum, byte *frame, int len)
         virtual_tcp.fin_received = false;
 
         // Send SYN-ACK
-        DEBUG("Uthernet II: TCP sending SYN-ACK\n");
+        fprintf(stderr, "Uthernet II: TCP sending SYN-ACK to port %d\n", dst_port);
         inject_tcp_response(socknum, TCP_SYN | TCP_ACK_FLAG, NULL, 0);
+        fprintf(stderr, "Uthernet II: SYN-ACK injected\n");
         virtual_tcp.our_seq++;  // SYN counts as 1 byte
         return;
     }
@@ -707,20 +715,22 @@ static void handle_tcp_packet(int socknum, byte *frame, int len)
     // Handle ACK (completing handshake or acknowledging data)
     if (flags & TCP_ACK_FLAG) {
         if (!virtual_tcp.established && (flags & TCP_ACK_FLAG) && !(flags & TCP_SYN)) {
-            DEBUG("Uthernet II: TCP handshake complete, connection established\n");
+            fprintf(stderr, "TCP HANDSHAKE COMPLETE - connection established!\n");
             virtual_tcp.established = true;
         }
 
         // Handle incoming data
         if (tcp_data_len > 0) {
             byte *data = tcp + tcp_header_len;
-            DEBUG("Uthernet II: TCP received %d bytes of data\n", tcp_data_len);
+            fprintf(stderr, "TCP data from Apple II: %d bytes: ", tcp_data_len);
+            for (int i = 0; i < tcp_data_len && i < 20; i++) fprintf(stderr, "%02X ", data[i]);
+            fprintf(stderr, "\n");
 
             // Forward data to host socket
             if (virtual_tcp.fd >= 0) {
                 ssize_t sent = send(virtual_tcp.fd, data, tcp_data_len, 0);
                 if (sent > 0) {
-                    DEBUG("Uthernet II: TCP forwarded %zd bytes to host\n", sent);
+                    fprintf(stderr, "TCP forwarded %zd bytes to host\n", sent);
                 }
             }
 
@@ -737,7 +747,9 @@ static void handle_tcp_packet(int socknum, byte *frame, int len)
                     byte recv_buf[1400];
                     ssize_t got = recv(virtual_tcp.fd, recv_buf, sizeof(recv_buf), 0);
                     if (got > 0) {
-                        DEBUG("Uthernet II: TCP received %zd bytes from host\n", got);
+                        fprintf(stderr, "TCP got %zd bytes from host: ", got);
+                        for (int i = 0; i < got && i < 20; i++) fprintf(stderr, "%02X ", recv_buf[i]);
+                        fprintf(stderr, "\n");
                         inject_tcp_response(socknum, TCP_ACK_FLAG | TCP_PSH, recv_buf, got);
                         virtual_tcp.our_seq += got;
                     } else if (got == 0) {
@@ -779,18 +791,16 @@ static void handle_tcp_packet(int socknum, byte *frame, int len)
 static void inject_tcp_response(int socknum, byte flags, byte *data, int data_len)
 {
     SocketState *ss = &u2.sockets[socknum];
-    // Write to ss->rx_buf, APPENDING to existing data
-    byte *pkt = ss->rx_buf;
 
-    // Start writing at current tail position (append, don't overwrite)
-    int pkt_base = ss->rx_tail;
-    int pos = pkt_base + 2;  // Skip W5100 length prefix for this packet
+    // Build packet in temp buffer first, then copy to circular rx_buf
+    byte tmp[256];  // Max TCP packet we'll send
+    int pos = 2;    // Skip W5100 length prefix
 
     // Ethernet header
-    memcpy(&pkt[pos + ETH_DST], virtual_tcp.remote_mac, 6);
-    memcpy(&pkt[pos + ETH_SRC], VIRTUAL_GATEWAY_MAC, 6);
-    pkt[pos + ETH_TYPE] = 0x08;
-    pkt[pos + ETH_TYPE + 1] = 0x00;  // IPv4
+    memcpy(&tmp[pos + ETH_DST], virtual_tcp.remote_mac, 6);
+    memcpy(&tmp[pos + ETH_SRC], VIRTUAL_GATEWAY_MAC, 6);
+    tmp[pos + ETH_TYPE] = 0x08;
+    tmp[pos + ETH_TYPE + 1] = 0x00;  // IPv4
     pos += ETH_HEADER_LEN;
 
     int ip_start = pos;
@@ -798,89 +808,112 @@ static void inject_tcp_response(int socknum, byte flags, byte *data, int data_le
     int ip_len = IPH_HEADER_LEN + tcp_len;
 
     // IP header
-    pkt[pos++] = 0x45;  // Version 4, IHL 5
-    pkt[pos++] = 0x00;  // TOS
-    pkt[pos++] = (ip_len >> 8) & 0xFF;
-    pkt[pos++] = ip_len & 0xFF;
-    pkt[pos++] = 0x00; pkt[pos++] = 0x01;  // ID
-    pkt[pos++] = 0x00; pkt[pos++] = 0x00;  // Flags, fragment
-    pkt[pos++] = 64;   // TTL
-    pkt[pos++] = 6;    // Protocol = TCP
-    pkt[pos++] = 0x00; pkt[pos++] = 0x00;  // Checksum placeholder
+    tmp[pos++] = 0x45;  // Version 4, IHL 5
+    tmp[pos++] = 0x00;  // TOS
+    tmp[pos++] = (ip_len >> 8) & 0xFF;
+    tmp[pos++] = ip_len & 0xFF;
+    tmp[pos++] = 0x00; tmp[pos++] = 0x01;  // ID
+    tmp[pos++] = 0x00; tmp[pos++] = 0x00;  // Flags, fragment
+    tmp[pos++] = 64;   // TTL
+    tmp[pos++] = 6;    // Protocol = TCP
+    tmp[pos++] = 0x00; tmp[pos++] = 0x00;  // Checksum placeholder
 
     // Source IP (the IP client connected to)
-    memcpy(&pkt[pos], virtual_tcp.local_ip, 4);
+    memcpy(&tmp[pos], virtual_tcp.local_ip, 4);
     pos += 4;
 
     // Destination IP
-    memcpy(&pkt[pos], virtual_tcp.remote_ip, 4);
+    memcpy(&tmp[pos], virtual_tcp.remote_ip, 4);
     pos += 4;
 
     // Calculate IP checksum
-    word ip_cksum = ip_checksum(&pkt[ip_start], IPH_HEADER_LEN);
-    pkt[ip_start + 10] = ip_cksum >> 8;
-    pkt[ip_start + 11] = ip_cksum & 0xFF;
+    word ip_cksum = ip_checksum(&tmp[ip_start], IPH_HEADER_LEN);
+    tmp[ip_start + 10] = ip_cksum >> 8;
+    tmp[ip_start + 11] = ip_cksum & 0xFF;
 
     int tcp_start = pos;
 
     // TCP header
-    pkt[pos++] = (virtual_tcp.local_port >> 8) & 0xFF;
-    pkt[pos++] = virtual_tcp.local_port & 0xFF;
-    pkt[pos++] = (virtual_tcp.remote_port >> 8) & 0xFF;
-    pkt[pos++] = virtual_tcp.remote_port & 0xFF;
+    tmp[pos++] = (virtual_tcp.local_port >> 8) & 0xFF;
+    tmp[pos++] = virtual_tcp.local_port & 0xFF;
+    tmp[pos++] = (virtual_tcp.remote_port >> 8) & 0xFF;
+    tmp[pos++] = virtual_tcp.remote_port & 0xFF;
 
     // Sequence number
-    pkt[pos++] = (virtual_tcp.our_seq >> 24) & 0xFF;
-    pkt[pos++] = (virtual_tcp.our_seq >> 16) & 0xFF;
-    pkt[pos++] = (virtual_tcp.our_seq >> 8) & 0xFF;
-    pkt[pos++] = virtual_tcp.our_seq & 0xFF;
+    tmp[pos++] = (virtual_tcp.our_seq >> 24) & 0xFF;
+    tmp[pos++] = (virtual_tcp.our_seq >> 16) & 0xFF;
+    tmp[pos++] = (virtual_tcp.our_seq >> 8) & 0xFF;
+    tmp[pos++] = virtual_tcp.our_seq & 0xFF;
 
     // ACK number
-    pkt[pos++] = (virtual_tcp.their_seq >> 24) & 0xFF;
-    pkt[pos++] = (virtual_tcp.their_seq >> 16) & 0xFF;
-    pkt[pos++] = (virtual_tcp.their_seq >> 8) & 0xFF;
-    pkt[pos++] = virtual_tcp.their_seq & 0xFF;
+    tmp[pos++] = (virtual_tcp.their_seq >> 24) & 0xFF;
+    tmp[pos++] = (virtual_tcp.their_seq >> 16) & 0xFF;
+    tmp[pos++] = (virtual_tcp.their_seq >> 8) & 0xFF;
+    tmp[pos++] = virtual_tcp.their_seq & 0xFF;
 
     // Data offset (5 = 20 bytes), reserved, flags
-    pkt[pos++] = 0x50;  // Data offset = 5 (20 bytes)
-    pkt[pos++] = flags;
+    tmp[pos++] = 0x50;  // Data offset = 5 (20 bytes)
+    tmp[pos++] = flags;
 
     // Window size (8KB)
-    pkt[pos++] = 0x20; pkt[pos++] = 0x00;
+    tmp[pos++] = 0x20; tmp[pos++] = 0x00;
 
     // Checksum placeholder
-    pkt[pos++] = 0x00; pkt[pos++] = 0x00;
+    tmp[pos++] = 0x00; tmp[pos++] = 0x00;
 
     // Urgent pointer
-    pkt[pos++] = 0x00; pkt[pos++] = 0x00;
+    tmp[pos++] = 0x00; tmp[pos++] = 0x00;
 
     // Data
-    if (data && data_len > 0) {
-        memcpy(&pkt[pos], data, data_len);
+    if (data && data_len > 0 && data_len < 180) {
+        memcpy(&tmp[pos], data, data_len);
         pos += data_len;
     }
 
     // Calculate TCP checksum
-    word tcp_cksum = tcp_checksum(&pkt[ip_start], &pkt[tcp_start], tcp_len);
-    pkt[tcp_start + TCP_CHECKSUM] = tcp_cksum >> 8;
-    pkt[tcp_start + TCP_CHECKSUM + 1] = tcp_cksum & 0xFF;
+    word tcp_cksum = tcp_checksum(&tmp[ip_start], &tmp[tcp_start], tcp_len);
+    tmp[tcp_start + TCP_CHECKSUM] = tcp_cksum >> 8;
+    tmp[tcp_start + TCP_CHECKSUM + 1] = tcp_cksum & 0xFF;
 
-    // W5100 length prefix for THIS packet (at pkt_base)
-    int pkt_len = pos - pkt_base;  // Length of this packet including prefix
-    pkt[pkt_base + 0] = (pkt_len >> 8) & 0xFF;
-    pkt[pkt_base + 1] = pkt_len & 0xFF;
+    // W5100 length prefix
+    int pkt_len = pos;
+    tmp[0] = (pkt_len >> 8) & 0xFF;
+    tmp[1] = pkt_len & 0xFF;
 
-    // Update RX buffer state - APPEND, don't reset head
-    ss->rx_tail = pos;  // New tail is at end of this packet
+    // Check available space in circular buffer
+    word used = (ss->rx_tail - ss->rx_head) & (SOCK_BUF_SIZE - 1);
+    word space = SOCK_BUF_SIZE - 1 - used;
 
-    DEBUG("Uthernet II: Injected TCP response (flags=0x%02X, data=%d, pkt=%d bytes) RX: head=%d tail=%d\n",
+    fprintf(stderr, "inject_tcp: pkt_len=%d head=%u tail=%u used=%u space=%u\n",
+            pkt_len, (unsigned)ss->rx_head, (unsigned)ss->rx_tail, (unsigned)used, (unsigned)space);
+
+    if (pkt_len > space) {
+        fprintf(stderr, "Uthernet II: TCP RX buffer full! head=%d tail=%d space=%d need=%d\n",
+              ss->rx_head, ss->rx_tail, space, pkt_len);
+        return;
+    }
+
+    // Copy packet to circular rx_buf
+    for (int i = 0; i < pkt_len; i++) {
+        int dst = (ss->rx_tail + i) & (SOCK_BUF_SIZE - 1);
+        ss->rx_buf[dst] = tmp[i];
+    }
+
+    // Update tail (keep it as absolute counter, wrap when reading RSR)
+    ss->rx_tail += pkt_len;
+
+    DEBUG("Uthernet II: Injected TCP (flags=0x%02X, data=%d, pkt=%d) head=%d tail=%d\n",
           flags, data_len, pkt_len, ss->rx_head, ss->rx_tail);
 }
 
 // Poll virtual TCP connection for incoming data from host
 static void virtual_tcp_poll(int socknum)
 {
-    if (virtual_tcp.fd < 0 || !virtual_tcp.established) {
+    if (virtual_tcp.fd < 0) {
+        return;
+    }
+    if (!virtual_tcp.established) {
+        // Still poll occasionally in case connection establishes
         return;
     }
 
@@ -888,9 +921,11 @@ static void virtual_tcp_poll(int socknum)
 
     // Check for data from host
     struct pollfd pfd = { virtual_tcp.fd, POLLIN, 0 };
-    if (poll(&pfd, 1, 0) > 0) {
+    int poll_result = poll(&pfd, 1, 0);
+    if (poll_result > 0) {
         byte recv_buf[1400];
         ssize_t got = recv(virtual_tcp.fd, recv_buf, sizeof(recv_buf), 0);
+        fprintf(stderr, "virtual_tcp_poll: got %zd bytes from host\n", got);
 
         if (got > 0) {
             DEBUG("Uthernet II: TCP received %zd bytes from host (poll)\n", got);
@@ -1156,9 +1191,9 @@ static byte w5100_read(word addr)
             }
 
             if (offset == Sn_RX_RSR || offset == Sn_RX_RSR + 1) {
-                // RX Received Size - return buffered amount
+                // RX Received Size - return buffered amount (circular buffer)
                 SocketState *ss = &u2.sockets[socknum];
-                word rsr = (ss->rx_tail - ss->rx_head) & 0x0FFF;
+                word rsr = (ss->rx_tail - ss->rx_head) & (SOCK_BUF_SIZE - 1);
 
                 if (rsr > 0) {
                     DEBUG("Uthernet II: Socket %d RX_RSR=%d (tail=%d head=%d)\n",
@@ -1174,19 +1209,31 @@ static byte w5100_read(word addr)
         }
     }
 
-    // RX buffer read - return from local buffer or u2.memory (for MACRAW virtual)
-    if (addr >= W5100_RX_BASE && addr < W5100_RX_BASE + W5100_RX_SIZE) {
-        int socknum = (addr - W5100_RX_BASE) / SOCK_BUF_SIZE;
-        if (socknum < 4) {
-            SocketState *ss = &u2.sockets[socknum];
+    // RX buffer read - return from local buffer
+    // Handle wrapped addresses: IP65 may compute addresses beyond buffer bounds
+    // when RX_RD pointer exceeds socket buffer size
+    if (addr >= W5100_RX_BASE) {
+        int socknum;
+        word buf_offset;
 
-            // Direct offset into socket's RX buffer
-            word rx_base = get_rx_base(socknum);
-            word buf_offset = (addr - rx_base) & (SOCK_BUF_SIZE - 1);
-
-            if (buf_offset < sizeof(ss->rx_buf)) {
-                return ss->rx_buf[buf_offset];
+        // In MACRAW mode (socket 0), all RX accesses belong to socket 0
+        // regardless of computed address (handles wrap-around)
+        if (u2.sockets[0].macraw_mode) {
+            socknum = 0;
+            buf_offset = (addr - W5100_RX_BASE) & (SOCK_BUF_SIZE - 1);
+        } else {
+            // Regular mode: determine socket from address, with bounds checking
+            word rel_addr = addr - W5100_RX_BASE;
+            if (rel_addr >= W5100_RX_SIZE) {
+                // Address beyond RX buffer - wrap it
+                rel_addr &= (W5100_RX_SIZE - 1);
             }
+            socknum = rel_addr / SOCK_BUF_SIZE;
+            buf_offset = rel_addr & (SOCK_BUF_SIZE - 1);
+        }
+
+        if (socknum < 4 && buf_offset < sizeof(u2.sockets[socknum].rx_buf)) {
+            return u2.sockets[socknum].rx_buf[buf_offset];
         }
     }
 
@@ -1443,32 +1490,22 @@ static void socket_command(int socknum, byte cmd)
                                  u2.memory[base + Sn_RX_RD]);
                 word rx_base = get_rx_base(socknum);
 
-                // Calculate what the software claims to have read
-                word claimed_read = (rx_rd - rx_base) & (SOCK_BUF_SIZE - 1);
+                // Calculate what the software claims to have read (as circular offset)
+                word claimed_offset = (rx_rd - rx_base) & (SOCK_BUF_SIZE - 1);
+                word head_offset = ss->rx_head & (SOCK_BUF_SIZE - 1);
+                word tail_offset = ss->rx_tail & (SOCK_BUF_SIZE - 1);
 
-                INFO("Uthernet II: Socket %d RECV: rx_rd=0x%04X, head=%d->%d, tail=%d\n",
-                     socknum, rx_rd, ss->rx_head, claimed_read, ss->rx_tail);
+                INFO("Uthernet II: Socket %d RECV: rx_rd=0x%04X, head=%d(%d) tail=%d(%d) claimed=%d\n",
+                     socknum, rx_rd, ss->rx_head, head_offset, ss->rx_tail, tail_offset, claimed_offset);
 
-                // For MACRAW mode: advance head by amount consumed
-                // Only clear buffer if completely empty
-                if (ss->macraw_mode) {
-                    int consumed = (claimed_read - ss->rx_head) & (SOCK_BUF_SIZE - 1);
-                    if (consumed > 0) {
-                        ss->rx_head += consumed;
-                        INFO("Uthernet II: MACRAW consumed %d bytes, head=%d tail=%d remaining=%d\n",
-                             consumed, ss->rx_head, ss->rx_tail, ss->rx_tail - ss->rx_head);
-
-                        // If buffer is now empty, reset to start for efficiency
-                        if (ss->rx_head >= ss->rx_tail) {
-                            ss->rx_head = 0;
-                            ss->rx_tail = 0;
-                            u2.memory[base + Sn_RX_RD + 0] = HI(rx_base);
-                            u2.memory[base + Sn_RX_RD + 1] = LO(rx_base);
-                            INFO("Uthernet II: MACRAW buffer empty, reset\n");
-                        }
-                    }
-                } else if (claimed_read != ss->rx_head) {
-                    ss->rx_head = claimed_read;
+                // Advance head by amount consumed (use circular arithmetic)
+                int consumed = (claimed_offset - head_offset) & (SOCK_BUF_SIZE - 1);
+                if (consumed > 0) {
+                    ss->rx_head += consumed;
+                    word new_head_offset = ss->rx_head & (SOCK_BUF_SIZE - 1);
+                    word rsr = (ss->rx_tail - ss->rx_head) & (SOCK_BUF_SIZE - 1);
+                    INFO("Uthernet II: RECV consumed %d bytes, head=%d(%d) RSR=%d\n",
+                         consumed, ss->rx_head, new_head_offset, rsr);
                 }
             }
             break;

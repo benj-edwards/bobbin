@@ -144,9 +144,8 @@ static bool for_iface_only(EventType t)
 
 void event_fire(EventType type)
 {
-    Event *e = xalloc(sizeof *e);
-    *e = evinit;
-    e->type = type;
+    Event e = evinit;  // Stack allocation - no malloc/free overhead
+    e.type = type;
 
     // special handling
     switch (type) {
@@ -171,13 +170,13 @@ void event_fire(EventType type)
             ;
     }
 
-    iface_fire(e);
+    iface_fire(&e);
 
-    if (!(e->type == EV_FRAME || e->type == EV_CYCLE // dispatched specially
-          || for_iface_only(e->type))) {
-        dispatch(e);
+    if (!(e.type == EV_FRAME || e.type == EV_CYCLE // dispatched specially
+          || for_iface_only(e.type))) {
+        dispatch(&e);
     }
-    if (e->type == EV_FRAME) {
+    if (e.type == EV_FRAME) {
         frame_timer_countdown();
     }
 
@@ -185,68 +184,56 @@ void event_fire(EventType type)
         // Not allowed to change PC in STEP, PEEK, POKE events...
         assert(PC == current_pc());
     }
-
-    free(e);
 }
 
 int event_fire_peek(word loc)
 {
-    Event *e = xalloc(sizeof *e);
-    *e = evinit;
-    e->type = EV_PEEK;
-    e->loc = loc;
+    Event e = evinit;  // Stack allocation - no malloc/free overhead
+    e.type = EV_PEEK;
+    e.loc = loc;
     size_t bufloc; // throw-away
-    mem_get_true_access(loc, false, &bufloc, &e->aux, &e->acctype);
-    e->aloc = loc | (e->aux? LOC_AUX_START : 0);
+    mem_get_true_access(loc, false, &bufloc, &e.aux, &e.acctype);
+    e.aloc = loc | (e.aux? LOC_AUX_START : 0);
     word pc = PC; // may not eq current_instruction, if we're in the midst
                   //  of some CPU thing
-    iface_fire(e);
-    dispatch(e);
+    iface_fire(&e);
+    dispatch(&e);
     assert(pc == PC);
-    int val = e->val;
-    free(e);
-    return val;
+    return e.val;
 }
 
 bool event_fire_poke(word loc, byte val)
 {
-    Event *e = xalloc(sizeof *e);
-    *e = evinit;
-    e->type = EV_POKE;
-    e->loc = loc;
+    Event e = evinit;  // Stack allocation - no malloc/free overhead
+    e.type = EV_POKE;
+    e.loc = loc;
     size_t bufloc; // throw-away
-    mem_get_true_access(loc, true, &bufloc, &e->aux, &e->acctype);
-    e->aloc = loc | (e->aux? LOC_AUX_START : 0);
-    e->val = val;
+    mem_get_true_access(loc, true, &bufloc, &e.aux, &e.acctype);
+    e.aloc = loc | (e.aux? LOC_AUX_START : 0);
+    e.val = val;
     word pc = PC; // may not eq current_instruction, if we're in the midst
                   //  of some CPU thing
-    iface_fire(e);
-    dispatch(e);
+    iface_fire(&e);
+    dispatch(&e);
     assert(pc == PC);
-    bool suppress = e->suppress;
-    free(e);
-    return suppress;
+    return e.suppress;
 }
 
 void event_fire_disk_active(int val)
 {
-    Event *e = xalloc(sizeof *e);
-    *e = evinit;
-    e->type = EV_DISK_ACTIVE;
-    e->val = val;
+    Event e = evinit;  // Stack allocation
+    e.type = EV_DISK_ACTIVE;
+    e.val = val;
 
-    iface_fire(e);
-    free(e);
+    iface_fire(&e);
 }
 
 void event_fire_switch(SoftSwitchFlagPos f)
 {
-    Event *e = xalloc(sizeof *e);
-    *e = evinit;
-    e->type = EV_SWITCH;
-    e->val = f;
+    Event e = evinit;  // Stack allocation
+    e.type = EV_SWITCH;
+    e.val = f;
 
-    iface_fire(e);
-    dispatch(e);
-    free(e);
+    iface_fire(&e);
+    dispatch(&e);
 }

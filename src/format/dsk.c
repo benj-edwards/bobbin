@@ -333,7 +333,8 @@ static void eject(DiskFormatDesc *desc)
 {
     // free dat->path and dat, and unmap disk image
     struct dskprivdat *dat = desc->privdat;
-    (void) munmap(dat->buf, dsk_disksz);
+    free(dat->buf);                          // Free the malloc'd nibble buffer
+    (void) munmap(dat->realbuf, dsk_disksz); // Unmap the mmap'd disk image
     free((void*)dat->path);
     free(dat);
 }
