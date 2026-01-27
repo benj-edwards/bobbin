@@ -199,7 +199,7 @@ static void set_interactive(void)
     if (WARN_OK && !cfg.runbasicfile) {
         fprintf(stderr, "\n[Bobbin \"simple\" interactive mode.\n"
                 " Ctrl-D at input to exit.\n"
-                " Ctrl-C *TWICE* to enter debugger.]\n");
+                " Ctrl-\\ to enter debugger.]\n");
     }
 }
 
@@ -285,29 +285,11 @@ recheck:
     if (exit_on_spindown) {
         // no input
     } else if (sigint_received) {
-        c = 0x83; // Ctrl-C in Apple ][
-        if (interactive) {
-            if (last_char_consumed == 0x03 || sigint_received > 1) {
-                // Take this to mean two consecutive Ctrl-C's, with no
-                // intervening user input. This should trigger the debugger.
-                dbg_on();
-                sigint_received = 0;
-                last_char_consumed = 'A';
-                goto recheck; // go again, in case buffered chars
-            } else {
-                // Everything's fine
-            }
-        } else if (cfg.remain_after_pipe) {
-            // Flush remaining input and switch to interactive.
-            lbuf_start = lbuf_end = linebuf;
-            set_interactive();
-        } else if (cfg.remain_tty) {
-            transition_tty();
-        } else if (cfg.runbasicfile) {
-            // Let BASIC receive it (will BREAK, unless in INPUT or GET)
-        } else {
-            eof_found = true;
-        }
+        // SIGQUIT (Ctrl-\) received - enter debugger immediately
+        // Unlike Ctrl-C, this doesn't send any character to the Apple II
+        dbg_on();
+        sigint_received = 0;
+        goto recheck;
     } else if (lbuf_start < lbuf_end) {
         // We have chars left from a buffered read, grab the next
         //  from that.

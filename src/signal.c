@@ -10,14 +10,16 @@
 #include <signal.h>
 #include <stdlib.h>
 
-volatile sig_atomic_t sigint_received = 0;
+volatile sig_atomic_t sigint_received = 0;  // Now used for SIGQUIT (Ctrl-\)
 volatile sig_atomic_t sigwinch_received = 0;
 volatile sig_atomic_t sigalrm_received = 0;
 
-void handle_int(int s)
+// Handle SIGQUIT (Ctrl-\) for debugger entry - avoids conflict with Ctrl-C
+// which Apple II programs may want to receive
+void handle_quit(int s)
 {
-    ++sigint_received;
-    signal(SIGINT, handle_int);
+    ++sigint_received;  // Reuse the same counter for debugger triggering
+    signal(SIGQUIT, handle_quit);
 }
 
 void handle_winch(int s)
@@ -34,12 +36,12 @@ void handle_alarm(int s)
 
 void signals_init(void)
 {
-    signal(SIGINT, handle_int);
+    signal(SIGQUIT, handle_quit);  // Ctrl-\ for debugger
     signal(SIGWINCH, handle_winch);
     signal(SIGALRM, handle_alarm);
 }
 
 void unhandle_sigint(void)
 {
-    signal(SIGINT, SIG_DFL);
+    signal(SIGQUIT, SIG_DFL);
 }
