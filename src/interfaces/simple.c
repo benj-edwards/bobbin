@@ -114,6 +114,12 @@ static inline bool is_canon(void)
 
 static void transition_tty(void)
 {
+    // If running with control socket only (headless mode), skip TTY transition
+    if (cfg.control_socket && !isatty(0)) {
+        INFO("Skipping TTY transition in headless mode\n");
+        return;
+    }
+
     lbuf_start = lbuf_end = linebuf;
     util_reopen_stdin_tty(O_RDONLY);
 
@@ -125,6 +131,9 @@ static void transition_tty(void)
 
 static void restore_term(void)
 {
+    // Only restore if we're in interactive mode with a real TTY
+    if (!interactive || !isatty(0)) return;
+
     ios = orig_ios;
     int e = tcsetattr(0, TCSANOW, &ios);
     if (e < 0) {
@@ -135,6 +144,9 @@ static void restore_term(void)
 
 static void set_ios(struct termios *my_ios)
 {
+    // Only set terminal attributes if we have a real TTY
+    if (!isatty(0)) return;
+
     int e = tcsetattr(0, TCSANOW, my_ios);
     if (e < 0) {
         const char *err = strerror(errno);
@@ -171,6 +183,14 @@ static void set_interactive(void)
     //  (and "simple" interface selected), or else when switching to
     //  terminal input after redirected input (from a pipe or file)
     //  is exhausted (and --remain-after-pipe is set)
+
+    // If running with control socket only (headless mode), skip TTY setup
+    if (cfg.control_socket && !isatty(0)) {
+        interactive = false;
+        INFO("Running in headless mode (control socket only)\n");
+        return;
+    }
+
     interactive = true;
     errno = 0;
     const char *err;
