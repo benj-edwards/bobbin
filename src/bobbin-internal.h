@@ -142,7 +142,11 @@ struct Config {
     bool            watch;
     bool            tokenize;
     bool            detokenize;
+
+    // control socket for AI/MCP
+    const char *    control_socket;
 };
+
 extern Config cfg;
 
 /********** CPU **********/
@@ -615,6 +619,13 @@ extern bool dgr_command_do(const char *line, printer pr);
 
 // AI Agent keyboard injection (simple interface only)
 extern void simple_inject_keys(const char *keys, size_t len);
+
+/********** CONTROL SOCKET **********/
+
+// Unix socket control interface for AI/MCP integration
+extern int control_socket_init(const char *path);
+extern void control_socket_cleanup(void);
+extern void control_socket_poll(void);
 
 extern void dbg_on(void);
 extern void debugger(void);

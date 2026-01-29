@@ -42,6 +42,14 @@ void bobbin_run(void)
     dlypc_reboot();
     setup_watches();
     interfaces_start();
+
+    // Initialize control socket if configured
+    if (cfg.control_socket) {
+        if (control_socket_init(cfg.control_socket) < 0) {
+            WARN("Failed to initialize control socket\n");
+        }
+    }
+
     struct timing_t *timing = timing_init();
 
     event_fire(EV_RESET);
@@ -50,6 +58,10 @@ void bobbin_run(void)
         if (!cfg.turbo) {
             timing_adjust(timing);
         }
+
+        // Poll control socket for commands
+        control_socket_poll();
+
         if (check_watches()) frame_count = 0;
         cycle_count = 0;
         do {

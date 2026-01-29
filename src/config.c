@@ -62,6 +62,7 @@ typedef const char * const AryOfStr;
 static AryOfStr VV_OPT_NAMES[]  = {"vv",NULL};
 static AryOfStr VVV_OPT_NAMES[] = {"vvv",NULL};
 static AryOfStr MOUSE_OPT_NAMES[] = {"mouse", NULL};
+static AryOfStr CONTROL_SOCKET_OPT_NAMES[] = {"control-socket", NULL};
 // ^ not a documented option, so we rolled this by hand. But
 
 typedef char Alias[];
@@ -145,6 +146,7 @@ const OptInfo options[] = {
     { DETOKENIZE_OPT_NAMES, T_BOOL, &cfg.detokenize },
     { MAX_RUNTIME_OPT_NAMES, T_ULONG_DEC_ARG, &cfg.max_frames },
     { BOT_MODE_OPT_NAMES, T_BOOL, &cfg.bot_mode },
+    { CONTROL_SOCKET_OPT_NAMES, T_STRING_ARG, &cfg.control_socket },
 };
 
 static const OptInfo *find_option(const char *opt)
