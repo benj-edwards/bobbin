@@ -626,6 +626,9 @@ extern void simple_inject_keys(const char *keys, size_t len);
 extern int control_socket_init(const char *path);
 extern void control_socket_cleanup(void);
 extern void control_socket_poll(void);
+extern bool control_socket_check_breakpoints(void);  // Check if should pause
+extern bool control_socket_turbo(void);              // Query turbo mode
+extern bool control_socket_paused(void);             // Query paused state
 
 extern void dbg_on(void);
 extern void debugger(void);
