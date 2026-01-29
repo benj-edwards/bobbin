@@ -1,6 +1,42 @@
 # Bobbin Changelog
 
-## [Unreleased] - 2026-01-25
+## [Unreleased] - 2026-01-28
+
+### Added
+
+- **Control Socket Interface** (`control_socket.c`)
+  - Unix domain socket for AI/MCP integration at `/tmp/bobbin.sock`
+  - Enable with `--control-socket PATH` command line option
+  - JSON-based command protocol, newline-delimited responses
+  - Bypasses all pexpect/PTY/signal issues that plagued debugger integration
+
+  **Protocol v2.0 Commands:**
+
+  | Category | Commands |
+  |----------|----------|
+  | Basic | `ping`, `quit` |
+  | Memory | `peek`, `poke`, `load`, `screen`, `screen_raw` |
+  | CPU | `cpu`, `step`, `reset`, `pause`, `resume`, `call`, `disasm` |
+  | Breakpoints | `break_set`, `break_clear`, `break_list`, `break_enable`, `break_disable`, `watch_set` |
+  | Disks | `disk_status`, `disk_insert`, `disk_eject` |
+  | Graphics | `hgr`, `gr`, `dhgr`, `dgr` (export to PPM files) |
+  | State | `save_state`, `load_state` (full emulator snapshots) |
+  | System | `mouse`, `slots`, `softswitches`, `speed`, `cycles`, `trace`, `keys` |
+
+  **Example usage:**
+  ```bash
+  # Start bobbin with control socket
+  bobbin --simple --control-socket /tmp/bobbin.sock -m enhanced --disk mydisk.dsk
+
+  # Connect and send commands (Python)
+  from apple2_mcp.control_socket import BobbinControlSocket
+  sock = BobbinControlSocket('/tmp/bobbin.sock')
+  sock.connect()
+  print(sock.ping())        # {'ok': True, 'version': '2.0.0', 'machine': 'enhanced'}
+  print(sock.read_screen()) # 24 lines of text
+  sock.step(100)            # Single-step 100 instructions
+  sock.break_set(0x6000)    # Set breakpoint
+  ```
 
 ### Fixed
 
