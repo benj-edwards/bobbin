@@ -21,10 +21,22 @@
 
 // Control socket state
 static int server_fd = -1;
-static int client_fd = -1;
 static char *socket_path = NULL;
-static char cmd_buffer[8192];
-static size_t cmd_buffer_len = 0;
+
+// Multi-client support
+#define MAX_CLIENTS 16
+
+typedef struct {
+    int fd;
+    char cmd_buffer[8192];
+    size_t cmd_buffer_len;
+} ClientConnection;
+
+static ClientConnection clients[MAX_CLIENTS];
+static int num_clients = 0;
+
+// Current client being served (for send_response)
+static int current_client_idx = -1;
 
 // Response buffer (large enough for graphics data)
 static char resp_buffer[262144];
@@ -78,6 +90,14 @@ int control_socket_init(const char *path) {
     fprintf(stderr, "[control_socket] init called with path: %s\n", path ? path : "(null)");
     if (path == NULL) return 0;  // Disabled
 
+    // Initialize clients array
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        clients[i].fd = -1;
+        clients[i].cmd_buffer_len = 0;
+    }
+    num_clients = 0;
+    current_client_idx = -1;
+
     socket_path = strdup(path);
     if (!socket_path) {
         WARN("control_socket: strdup failed\n");
@@ -111,8 +131,8 @@ int control_socket_init(const char *path) {
         return -1;
     }
 
-    // Listen for connections
-    if (listen(server_fd, 1) < 0) {
+    // Listen for connections (allow backlog for multiple clients)
+    if (listen(server_fd, MAX_CLIENTS) < 0) {
         WARN("control_socket: listen() failed: %s\n", strerror(errno));
         close(server_fd);
         server_fd = -1;
@@ -125,10 +145,16 @@ int control_socket_init(const char *path) {
 
 // Cleanup control socket
 void control_socket_cleanup(void) {
-    if (client_fd >= 0) {
-        close(client_fd);
-        client_fd = -1;
+    // Close all client connections
+    for (int i = 0; i < num_clients; i++) {
+        if (clients[i].fd >= 0) {
+            close(clients[i].fd);
+            clients[i].fd = -1;
+        }
     }
+    num_clients = 0;
+    current_client_idx = -1;
+
     if (server_fd >= 0) {
         close(server_fd);
         server_fd = -1;
@@ -175,81 +201,119 @@ bool control_socket_check_breakpoints(void) {
     return false;
 }
 
+// Remove a client by index (shifts remaining clients down)
+static void remove_client(int idx) {
+    if (idx < 0 || idx >= num_clients) return;
+
+    if (clients[idx].fd >= 0) {
+        close(clients[idx].fd);
+    }
+
+    // Shift remaining clients down
+    for (int i = idx; i < num_clients - 1; i++) {
+        clients[i] = clients[i + 1];
+    }
+    num_clients--;
+
+    // Clear the now-unused slot
+    clients[num_clients].fd = -1;
+    clients[num_clients].cmd_buffer_len = 0;
+}
+
 // Poll for socket activity (call from main loop)
 void control_socket_poll(void) {
     if (server_fd < 0) return;
 
-    // Accept new connections
-    if (client_fd < 0) {
-        client_fd = accept(server_fd, NULL, NULL);
-        if (client_fd >= 0) {
+    // Accept new connections (if we have room)
+    if (num_clients < MAX_CLIENTS) {
+        int new_fd = accept(server_fd, NULL, NULL);
+        if (new_fd >= 0) {
             // Set non-blocking
-            int flags = fcntl(client_fd, F_GETFL, 0);
-            fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
-            INFO("Control socket: client connected\n");
-            cmd_buffer_len = 0;
+            int flags = fcntl(new_fd, F_GETFL, 0);
+            fcntl(new_fd, F_SETFL, flags | O_NONBLOCK);
+
+            // Add to clients array
+            clients[num_clients].fd = new_fd;
+            clients[num_clients].cmd_buffer_len = 0;
+            num_clients++;
+
+            INFO("Control socket: client %d connected (total: %d)\n", new_fd, num_clients);
         }
     }
 
-    if (client_fd < 0) return;
+    if (num_clients == 0) return;
 
-    // Read available data
-    char buf[1024];
-    ssize_t n = read(client_fd, buf, sizeof(buf));
+    // Process each client
+    for (int c = 0; c < num_clients; c++) {
+        if (clients[c].fd < 0) continue;
 
-    if (n < 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            WARN("Control socket: read error: %s\n", strerror(errno));
-            close(client_fd);
-            client_fd = -1;
-        }
-        return;
-    }
+        // Read available data
+        char buf[1024];
+        ssize_t n = read(clients[c].fd, buf, sizeof(buf));
 
-    if (n == 0) {
-        INFO("Control socket: client disconnected\n");
-        close(client_fd);
-        client_fd = -1;
-        return;
-    }
-
-    // Append to command buffer
-    for (ssize_t i = 0; i < n; i++) {
-        if (cmd_buffer_len < sizeof(cmd_buffer) - 1) {
-            cmd_buffer[cmd_buffer_len++] = buf[i];
+        if (n < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                WARN("Control socket: client %d read error: %s\n", clients[c].fd, strerror(errno));
+                remove_client(c);
+                c--;  // Adjust index since we removed a client
+            }
+            continue;
         }
 
-        // Check for newline (command delimiter)
-        if (buf[i] == '\n') {
-            cmd_buffer[cmd_buffer_len - 1] = '\0';
-            handle_command(cmd_buffer, cmd_buffer_len - 1);
-            cmd_buffer_len = 0;
+        if (n == 0) {
+            INFO("Control socket: client %d disconnected (remaining: %d)\n", clients[c].fd, num_clients - 1);
+            remove_client(c);
+            c--;  // Adjust index since we removed a client
+            continue;
+        }
+
+        // Append to this client's command buffer
+        for (ssize_t i = 0; i < n; i++) {
+            if (clients[c].cmd_buffer_len < sizeof(clients[c].cmd_buffer) - 1) {
+                clients[c].cmd_buffer[clients[c].cmd_buffer_len++] = buf[i];
+            }
+
+            // Check for newline (command delimiter)
+            if (buf[i] == '\n') {
+                clients[c].cmd_buffer[clients[c].cmd_buffer_len - 1] = '\0';
+
+                // Set current client for response routing
+                current_client_idx = c;
+
+                // Handle the command
+                handle_command(clients[c].cmd_buffer, clients[c].cmd_buffer_len - 1);
+
+                current_client_idx = -1;
+                clients[c].cmd_buffer_len = 0;
+            }
         }
     }
 }
 
-// Send response to client
+// Send response to current client
 static void send_response(const char *resp) {
-    if (client_fd < 0) return;
+    if (current_client_idx < 0 || current_client_idx >= num_clients) return;
+
+    int fd = clients[current_client_idx].fd;
+    if (fd < 0) return;
 
     size_t len = strlen(resp);
     size_t sent = 0;
 
     while (sent < len) {
-        ssize_t n = write(client_fd, resp + sent, len - sent);
+        ssize_t n = write(fd, resp + sent, len - sent);
         if (n <= 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 continue;
             }
-            WARN("Control socket: write error: %s\n", strerror(errno));
-            close(client_fd);
-            client_fd = -1;
+            WARN("Control socket: write error to client %d: %s\n", fd, strerror(errno));
+            // Don't remove client here - let poll handle it
             return;
         }
         sent += n;
     }
 
-    write(client_fd, "\n", 1);
+    write(fd, "\n", 1);
 }
 
 static void send_error(const char *msg) {
@@ -1046,7 +1110,7 @@ static void handle_command(const char *cmd, size_t len) {
     }
 
     // =========================================================================
-    // SAVE_STATE - Save emulator RAM state
+    // SAVE_STATE - Save emulator RAM state (128KB main + aux)
     // =========================================================================
     else if (strcmp(cmd_type, "save_state") == 0) {
         char path[512] = {0};
@@ -1061,16 +1125,16 @@ static void handle_command(const char *cmd, size_t len) {
             return;
         }
 
-        // Write header
-        const char *header = "BOBBIN_STATE_V1\n";
+        // Write header (V2 = 128KB main + aux memory)
+        const char *header = "BOBBIN_STATE_V2\n";
         fwrite(header, 1, strlen(header), f);
 
         // Write CPU state
         fwrite(&theCpu.regs, sizeof(theCpu.regs), 1, f);
 
-        // Write main memory (64KB)
+        // Write all memory (128KB: main + aux)
         const byte *ram = getram();
-        fwrite(ram, 1, 0x10000, f);
+        fwrite(ram, 1, 0x20000, f);
 
         // Write soft switches
         fwrite(&ss, sizeof(ss), 1, f);
@@ -1082,7 +1146,7 @@ static void handle_command(const char *cmd, size_t len) {
     }
 
     // =========================================================================
-    // LOAD_STATE - Load emulator RAM state
+    // LOAD_STATE - Load emulator RAM state (supports V1 and V2)
     // =========================================================================
     else if (strcmp(cmd_type, "load_state") == 0) {
         char path[512] = {0};
@@ -1097,11 +1161,25 @@ static void handle_command(const char *cmd, size_t len) {
             return;
         }
 
-        // Read and verify header
+        // Read and verify header (supports V1 and V2)
         char header[20] = {0};
-        if (fread(header, 1, 16, f) != 16 || strncmp(header, "BOBBIN_STATE_V1", 15) != 0) {
+        if (fread(header, 1, 16, f) != 16) {
             fclose(f);
             send_error("invalid state file");
+            return;
+        }
+
+        int version = 0;
+        size_t mem_size = 0;
+        if (strncmp(header, "BOBBIN_STATE_V2", 15) == 0) {
+            version = 2;
+            mem_size = 0x20000;  // 128KB
+        } else if (strncmp(header, "BOBBIN_STATE_V1", 15) == 0) {
+            version = 1;
+            mem_size = 0x10000;  // 64KB
+        } else {
+            fclose(f);
+            send_error("invalid state file header");
             return;
         }
 
@@ -1113,9 +1191,9 @@ static void handle_command(const char *cmd, size_t len) {
             return;
         }
 
-        // Read memory
-        byte ram[0x10000];
-        if (fread(ram, 1, 0x10000, f) != 0x10000) {
+        // Read memory (64KB or 128KB depending on version)
+        byte ram[0x20000];
+        if (fread(ram, 1, mem_size, f) != mem_size) {
             fclose(f);
             send_error("failed to read memory");
             return;
@@ -1133,13 +1211,13 @@ static void handle_command(const char *cmd, size_t len) {
 
         // Apply state
         theCpu.regs = regs;
-        mem_put(ram, 0, 0x10000);
+        mem_put(ram, 0, mem_size);
         memcpy(&ss, &new_ss, sizeof(ss));
 
         // Trigger display refresh
         event_fire(EV_DISPLAY_TOUCH);
 
-        snprintf(resp_buffer, sizeof(resp_buffer), "{\"ok\":true,\"path\":\"%s\"}", path);
+        snprintf(resp_buffer, sizeof(resp_buffer), "{\"ok\":true,\"path\":\"%s\",\"version\":%d}", path, version);
         send_response(resp_buffer);
     }
 
