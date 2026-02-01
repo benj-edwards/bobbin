@@ -55,12 +55,18 @@ void bobbin_run(void)
     event_fire(EV_RESET);
 
     for (;;) /* ever */ {
+        // Poll control socket for commands
+        control_socket_poll();
+
+        // If paused via control socket, sleep and skip CPU stepping
+        if (control_socket_paused()) {
+            usleep(10000);  // 10ms sleep to reduce CPU usage
+            continue;
+        }
+
         if (!cfg.turbo) {
             timing_adjust(timing);
         }
-
-        // Poll control socket for commands
-        control_socket_poll();
 
         if (check_watches()) frame_count = 0;
         cycle_count = 0;
