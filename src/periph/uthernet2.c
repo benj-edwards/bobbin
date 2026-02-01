@@ -705,9 +705,9 @@ static void handle_tcp_packet(int socknum, byte *frame, int len)
         virtual_tcp.fin_received = false;
 
         // Send SYN-ACK
-        fprintf(stderr, "Uthernet II: TCP sending SYN-ACK to port %d\n", dst_port);
+        DEBUG("Uthernet II: TCP sending SYN-ACK to port %d\n", dst_port);
         inject_tcp_response(socknum, TCP_SYN | TCP_ACK_FLAG, NULL, 0);
-        fprintf(stderr, "Uthernet II: SYN-ACK injected\n");
+        DEBUG("Uthernet II: SYN-ACK injected\n");
         virtual_tcp.our_seq++;  // SYN counts as 1 byte
         return;
     }
@@ -715,22 +715,20 @@ static void handle_tcp_packet(int socknum, byte *frame, int len)
     // Handle ACK (completing handshake or acknowledging data)
     if (flags & TCP_ACK_FLAG) {
         if (!virtual_tcp.established && (flags & TCP_ACK_FLAG) && !(flags & TCP_SYN)) {
-            fprintf(stderr, "TCP HANDSHAKE COMPLETE - connection established!\n");
+            DEBUG("Uthernet II: TCP handshake complete - connection established\n");
             virtual_tcp.established = true;
         }
 
         // Handle incoming data
         if (tcp_data_len > 0) {
             byte *data = tcp + tcp_header_len;
-            fprintf(stderr, "TCP data from Apple II: %d bytes: ", tcp_data_len);
-            for (int i = 0; i < tcp_data_len && i < 20; i++) fprintf(stderr, "%02X ", data[i]);
-            fprintf(stderr, "\n");
+            DEBUG("TCP data from Apple II: %d bytes\n", tcp_data_len);
 
             // Forward data to host socket
             if (virtual_tcp.fd >= 0) {
                 ssize_t sent = send(virtual_tcp.fd, data, tcp_data_len, 0);
                 if (sent > 0) {
-                    fprintf(stderr, "TCP forwarded %zd bytes to host\n", sent);
+                    DEBUG("TCP forwarded %zd bytes to host\n", sent);
                 }
             }
 
@@ -747,9 +745,7 @@ static void handle_tcp_packet(int socknum, byte *frame, int len)
                     byte recv_buf[1400];
                     ssize_t got = recv(virtual_tcp.fd, recv_buf, sizeof(recv_buf), 0);
                     if (got > 0) {
-                        fprintf(stderr, "TCP got %zd bytes from host: ", got);
-                        for (int i = 0; i < got && i < 20; i++) fprintf(stderr, "%02X ", recv_buf[i]);
-                        fprintf(stderr, "\n");
+                        DEBUG("TCP got %zd bytes from host\n", got);
                         inject_tcp_response(socknum, TCP_ACK_FLAG | TCP_PSH, recv_buf, got);
                         virtual_tcp.our_seq += got;
                     } else if (got == 0) {
@@ -889,11 +885,11 @@ static void inject_tcp_response(int socknum, byte flags, byte *data, int data_le
     word used = (ss->rx_tail - ss->rx_head) & (SOCK_BUF_SIZE - 1);
     word space = SOCK_BUF_SIZE - 1 - used;
 
-    fprintf(stderr, "inject_tcp: pkt_len=%d head=%u tail=%u used=%u space=%u\n",
-            pkt_len, (unsigned)ss->rx_head, (unsigned)ss->rx_tail, (unsigned)used, (unsigned)space);
+    DEBUG("inject_tcp: pkt_len=%d head=%u tail=%u used=%u space=%u\n",
+          pkt_len, (unsigned)ss->rx_head, (unsigned)ss->rx_tail, (unsigned)used, (unsigned)space);
 
     if (pkt_len > space) {
-        fprintf(stderr, "Uthernet II: TCP RX buffer full! head=%d tail=%d space=%d need=%d\n",
+        DEBUG("Uthernet II: TCP RX buffer full! head=%d tail=%d space=%d need=%d\n",
               ss->rx_head, ss->rx_tail, space, pkt_len);
         return;
     }
@@ -930,7 +926,7 @@ static void virtual_tcp_poll(int socknum)
     if (poll_result > 0) {
         byte recv_buf[1400];
         ssize_t got = recv(virtual_tcp.fd, recv_buf, sizeof(recv_buf), 0);
-        fprintf(stderr, "virtual_tcp_poll: got %zd bytes from host\n", got);
+        DEBUG("virtual_tcp_poll: got %zd bytes from host\n", got);
 
         if (got > 0) {
             DEBUG("Uthernet II: TCP received %zd bytes from host (poll)\n", got);
