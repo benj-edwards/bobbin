@@ -784,7 +784,12 @@ static void handle_tcp_packet(int socknum, byte *frame, int len)
             close(virtual_tcp.fd);
             virtual_tcp.fd = -1;
         }
+
+        // Full state reset for next connection
         virtual_tcp.established = false;
+        virtual_tcp.fin_sent = false;
+        virtual_tcp.fin_received = false;
+        DEBUG("Uthernet II: TCP connection fully closed, ready for new connection\n");
     }
 }
 
@@ -929,8 +934,16 @@ static void virtual_tcp_poll(int socknum)
 
         if (got > 0) {
             DEBUG("Uthernet II: TCP received %zd bytes from host (poll)\n", got);
-            inject_tcp_response(socknum, TCP_ACK_FLAG | TCP_PSH, recv_buf, got);
-            virtual_tcp.our_seq += got;
+            // Split large chunks to avoid exceeding inject_tcp_response's 180 byte limit
+            ssize_t remaining = got;
+            byte *ptr = recv_buf;
+            while (remaining > 0) {
+                ssize_t chunk = remaining > 160 ? 160 : remaining;
+                inject_tcp_response(socknum, TCP_ACK_FLAG | TCP_PSH, ptr, chunk);
+                virtual_tcp.our_seq += chunk;
+                ptr += chunk;
+                remaining -= chunk;
+            }
         } else if (got == 0) {
             // Host closed connection
             DEBUG("Uthernet II: TCP host closed connection (poll)\n");
@@ -941,6 +954,11 @@ static void virtual_tcp_poll(int socknum)
             }
             close(virtual_tcp.fd);
             virtual_tcp.fd = -1;
+            // Full state reset for next connection
+            virtual_tcp.established = false;
+            virtual_tcp.fin_sent = false;
+            virtual_tcp.fin_received = false;
+            DEBUG("Uthernet II: TCP connection fully closed (host initiated), ready for new\n");
         }
     }
 }
@@ -1050,6 +1068,22 @@ static void w5100_reset(void)
             close(u2.sockets[i].fd);
         }
     }
+
+    // Reset virtual TCP connection state
+    if (virtual_tcp.fd >= 0) {
+        close(virtual_tcp.fd);
+    }
+    virtual_tcp.fd = -1;
+    virtual_tcp.established = false;
+    virtual_tcp.fin_sent = false;
+    virtual_tcp.fin_received = false;
+    memset(virtual_tcp.remote_mac, 0, 6);
+    memset(virtual_tcp.remote_ip, 0, 4);
+    memset(virtual_tcp.local_ip, 0, 4);
+    virtual_tcp.remote_port = 0;
+    virtual_tcp.local_port = 0;
+    virtual_tcp.our_seq = 0;
+    virtual_tcp.their_seq = 0;
 
     memset(&u2, 0, sizeof(u2));
 
